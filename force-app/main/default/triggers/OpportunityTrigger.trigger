@@ -15,65 +15,49 @@ For this lesson, students have two options:
 
 Remember, whichever option you choose, ensure that the trigger is activated and tested to validate its functionality.
 */
-trigger OpportunityTrigger on Opportunity (before update, after update, before delete) {
+trigger OpportunityTrigger on Opportunity(
+  before insert,
+  before update,
+  after insert,
+  before delete,
+  after delete,
+  after undelete
+) {
+  if (Trigger.isBefore && Trigger.isInsert) {
+    //Set default Type for new Opportunities
+    opportunityTriggerHandler.setDefaultType(Trigger.new);
+  }
 
-    /*
-    * Opportunity Trigger
-    * When an opportunity is updated validate that the amount is greater than 5000.
-    * Trigger should only fire on update.
-    */
-    if (Trigger.isUpdate && Trigger.isBefore){
-        for(Opportunity opp : Trigger.new){
-            if(opp.Amount < 5000){
-                opp.addError('Opportunity amount must be greater than 5000');
-            }
-        }
-    }
+  if (Trigger.isBefore && Trigger.isUpdate) {
+    //When an opportunity is updated validate that the amount is greater than 5000.
+    opportunityTriggerHandler.validateAmountHelper(Trigger.new);
 
-    /*
-    * Opportunity Trigger
-    * When an opportunity is deleted prevent the deletion of a closed won opportunity if the account industry is 'Banking'.
-    * Trigger should only fire on delete.
-    */
-    if (Trigger.isDelete){
-        //Account related to the opportunities 
-        Map<Id, Account> accounts = new Map<Id, Account>([SELECT Id, Industry FROM Account WHERE Id IN (SELECT AccountId FROM Opportunity WHERE Id IN :Trigger.old)]);
-        for(Opportunity opp : Trigger.old){
-            if(opp.StageName == 'Closed Won'){
-                if(accounts.get(opp.AccountId).Industry == 'Banking'){
-                    opp.addError('Cannot delete a closed won opportunity for a banking account');
-                }
-            }
-        }
-    }
+    //When an opportunity is updated set the primary contact on the opportunity to the contact with the title of 'CEO'.
+    opportunityTriggerHandler.updatePrimaryContactHelper(Trigger.new);
 
-    /*
-    * Opportunity Trigger
-    * When an opportunity is updated set the primary contact on the opportunity to the contact with the title of 'CEO'.
-    * Trigger should only fire on update.
-    */
-    if (Trigger.isUpdate && Trigger.isBefore){
-        //Get contacts related to the opportunity account
-        Set<Id> accountIds = new Set<Id>();
-        for(Opportunity opp : Trigger.new){
-            accountIds.add(opp.AccountId);
-        }
-        
-        Map<Id, Contact> contacts = new Map<Id, Contact>([SELECT Id, FirstName, AccountId FROM Contact WHERE AccountId IN :accountIds AND Title = 'CEO' ORDER BY FirstName ASC]);
-        Map<Id, Contact> accountIdToContact = new Map<Id, Contact>();
+    // Append Stage changes in Opportunity Description
+    opportunityTriggerHandler.appendStageChangesOppDescription(Trigger.new);
+  }
 
-        for (Contact cont : contacts.values()) {
-            if (!accountIdToContact.containsKey(cont.AccountId)) {
-                accountIdToContact.put(cont.AccountId, cont);
-            }
-        }
+  if (Trigger.isAfter && Trigger.isInsert) {
+    // Create a new Task for newly inserted Opportunities
+    opportunityTriggerHandler.createTaskOpportunity(Trigger.new);
+  }
 
-        for(Opportunity opp : Trigger.new){
-            if(opp.Primary_Contact__c == null){
-                if (accountIdToContact.containsKey(opp.AccountId)){
-                    opp.Primary_Contact__c = accountIdToContact.get(opp.AccountId).Id;
-                }
-            }
-        }
-    }    
+  if (Trigger.isBefore && Trigger.isDelete) {
+    //When an opportunity is deleted prevent the deletion of a closed won opportunity if the account industry is 'Banking'.
+    // Prevent deletion of closed Opportunities
+    opportunityTriggerHandler.preventDeleteHelper(Trigger.old);
+  }
+
+  if (Trigger.isAfter && Trigger.isDelete) {
+    //Sends an email notification to the owner of the Opportunity when it gets deleted.
+    opportunityTriggerHandler.notifyOwnersOpportunityDeleted(Trigger.old);
+  }
+
+  if (Trigger.isAfter && Trigger.isUndelete) {
+    //Assigns a primary contact with the title of 'VP Sales' to undeleted Opportunities.
+    //Only updates the Opportunities that don't already have a primary contact.
+    opportunityTriggerHandler.assignPrimaryContact(Trigger.newMap);
+  }
 }
